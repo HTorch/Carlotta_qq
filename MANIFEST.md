@@ -18,6 +18,7 @@ Every file in this directory is intentionally listed below. The manifest exclude
 - `scripts/check-release.sh`
 - `scripts/publish.sh`
 - `scripts/setup.sh`
+- `scripts/setup.ps1`
 - `scripts/start-all.sh`
 - `scripts/status.sh`
 - `scripts/stop-all.sh`

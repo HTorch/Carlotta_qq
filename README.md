@@ -4,8 +4,15 @@ This is a sanitized, reusable Node.js example of a QQ group bot connected throug
 
 ## Quick start
 
+On Windows, run `scripts/setup.ps1` in PowerShell. On Linux or WSL, run:
+
 ```bash
 bash scripts/setup.sh
+```
+
+The setup wizard checks Node.js, installs dependencies, creates the local rules file, asks for bridge/provider values, writes `.env` with restrictive permissions, and creates runtime directories. Then run:
+
+```bash
 npm test
 bash scripts/check-release.sh
 ```
@@ -21,6 +28,7 @@ The checked-in `.env.example` and `config/group-rules.example.json` contain plac
 - `docs/contributing.md`: contribution checks
 - `docs/versioning.md`: release workflow
 - `scripts/check-release.sh`: fail-closed privacy, syntax, and test gate
+- `scripts/setup.sh` / `scripts/setup.ps1`: interactive local initialization wizard
 - `scripts/publish.sh`: optional upload helper requiring an explicit staging directory and reviewed remote
 
 ## Privacy boundary

@@ -4,11 +4,13 @@ Use Node.js 20 or newer and a OneBot WebSocket bridge that exposes event and API
 
 ## Setup
 
+On Windows, run `scripts/setup.ps1` from PowerShell. On Linux or WSL, run:
+
 ```bash
 bash scripts/setup.sh
 ```
 
-Review `.env` and `config/group-rules.example.json` locally. Set the event URL, API URL, rules file, and provider credentials for your own environment. The checked-in values are placeholders and do not connect to a real service.
+The wizard installs dependencies, creates `config/group-rules.json`, asks for the event/API URLs and optional provider credentials, and writes a local `.env`. The checked-in values are placeholders and do not connect to a real service. Review the generated files before starting.
 
 ## Run
 
