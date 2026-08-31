@@ -1,0 +1,8 @@
+.env
+node_modules/
+cache/
+logs/
+run/
+persist/
+config/*.runtime.json
+config/ignored-users.json

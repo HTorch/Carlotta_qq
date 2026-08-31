@@ -1,0 +1,15 @@
+{
+  "name": "carlotta-qq",
+  "version": "0.1.0",
+  "description": "Reusable QQ group bot architecture built around OneBot WebSocket",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "check": "bash scripts/check-release.sh",
+    "test": "node --test src/*.test.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.3"
+  }
+}

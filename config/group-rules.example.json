@@ -1,0 +1,15 @@
+{
+  "defaultRule": {
+    "probability": 0.2,
+    "muteDurationSeconds": 5,
+    "triggerSuffix": "trigger",
+    "triggerReply": "Trigger armed.",
+    "successReply": "Action completed.",
+    "enabledActions": ["temporaryMute"]
+  },
+  "groups": {
+    "example-group": {
+      "triggerPrefix": "bot-"
+    }
+  }
+}
