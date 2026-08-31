@@ -4,6 +4,8 @@ Every file in this directory is intentionally listed below. The manifest exclude
 
 ## Files
 
+- `.github/workflows/codeql.yml`
+- `.github/workflows/node-ci.yml`
 - `.env.example`
 - `.gitignore`
 - `MANIFEST.md`
