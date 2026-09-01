@@ -17,10 +17,13 @@ function importFresh(relativePath, stamp) {
 }
 
 export class HotRuntime {
-  constructor({ apiClient, logger, rootDir }) {
+  constructor({ apiClient, logger, rootDir, fsModule = fs, setTimeoutFn = setTimeout, clearTimeoutFn = clearTimeout, cronSetTimer = setTimeout, cronClearTimer = clearTimeout }) {
     this.apiClient = apiClient;
     this.logger = logger;
     this.rootDir = rootDir;
+    this.fs = fsModule;
+    this.setTimeoutFn = setTimeoutFn;
+    this.clearTimeoutFn = clearTimeoutFn;
     this.runtime = null;
     this.stateStore = null;
     this.chatService = new ChatService();
@@ -46,10 +49,13 @@ export class HotRuntime {
       apiClient: this.apiClient,
       runtimeControl: this.runtimeControl,
       logger: this.logger,
+      setTimer: cronSetTimer,
+      clearTimer: cronClearTimer,
     });
     this.watchers = [];
     this.reloadTimer = null;
     this.reloadSequence = 0;
+    this.stopped = false;
   }
 
   async initialize() {
@@ -62,8 +68,14 @@ export class HotRuntime {
     if (!cronLoad.ok) {
       this.logger.error('Cron reminder reload failed:', cronLoad.error?.message ?? cronLoad.error);
     }
+    if (this.stopped) {
+      this.cronScheduler.stop();
+      return;
+    }
     await this.reload('startup');
-    this.startWatching();
+    if (!this.stopped) {
+      this.startWatching();
+    }
   }
 
   async handleGroupMessage(event) {
@@ -76,6 +88,10 @@ export class HotRuntime {
   }
 
   async reload(reason) {
+    if (this.stopped) {
+      return;
+    }
+
     const stamp = `${Date.now()}-${++this.reloadSequence}`;
     const [configMod, ruleMod, actionMod, messageEngineMod, img2ServiceMod, img2ClientMod] = await Promise.all([
       importFresh('./config.js', stamp),
@@ -147,6 +163,10 @@ export class HotRuntime {
   }
 
   startWatching() {
+    if (this.stopped || this.watchers.length > 0) {
+      return;
+    }
+
     const watchedPaths = [
       path.join(this.rootDir, 'src', 'config.js'),
       path.join(this.rootDir, 'src', 'img2-service.js'),
@@ -160,11 +180,20 @@ export class HotRuntime {
     ];
 
     const scheduleReload = (reason) => {
-      if (this.reloadTimer) {
-        clearTimeout(this.reloadTimer);
+      if (this.stopped) {
+        return;
       }
 
-      this.reloadTimer = setTimeout(() => {
+      if (this.reloadTimer) {
+        this.clearTimeoutFn(this.reloadTimer);
+      }
+
+      this.reloadTimer = this.setTimeoutFn(() => {
+        this.reloadTimer = null;
+        if (this.stopped) {
+          return;
+        }
+
         this.reload(reason).catch((error) => {
           this.logger.error(`Hot runtime reload failed (${reason}):`, error.message);
         });
@@ -173,24 +202,48 @@ export class HotRuntime {
 
     for (const watchedPath of watchedPaths) {
       try {
-        const stat = fs.statSync(watchedPath);
+        const stat = this.fs.statSync(watchedPath);
         if (stat.isDirectory()) {
-          fs.watchFile(watchedPath, { interval: HOT_RELOAD_POLL_INTERVAL_MS }, () => {
+          const listener = () => {
             scheduleReload(`dir-changed:${path.basename(watchedPath)}`);
-          });
-          this.watchers.push({ type: 'watchFile', target: watchedPath });
+          };
+          this.fs.watchFile(watchedPath, { interval: HOT_RELOAD_POLL_INTERVAL_MS }, listener);
+          this.watchers.push({ type: 'watchFile', target: watchedPath, listener });
           continue;
         }
 
-        fs.watchFile(watchedPath, { interval: HOT_RELOAD_POLL_INTERVAL_MS }, (current, previous) => {
+        const listener = (current, previous) => {
           if (current.mtimeMs !== previous.mtimeMs || current.size !== previous.size) {
             scheduleReload(`file-changed:${path.basename(watchedPath)}`);
           }
-        });
-        this.watchers.push({ type: 'watchFile', target: watchedPath });
+        };
+        this.fs.watchFile(watchedPath, { interval: HOT_RELOAD_POLL_INTERVAL_MS }, listener);
+        this.watchers.push({ type: 'watchFile', target: watchedPath, listener });
       } catch (error) {
         this.logger.warn(`Hot runtime watch skipped for ${watchedPath}: ${error.message}`);
       }
     }
+  }
+
+  stop() {
+    if (this.stopped) {
+      return;
+    }
+
+    this.stopped = true;
+    if (this.reloadTimer) {
+      this.clearTimeoutFn(this.reloadTimer);
+      this.reloadTimer = null;
+    }
+    for (const watcher of this.watchers) {
+      try {
+        this.fs.unwatchFile(watcher.target, watcher.listener);
+      } catch (error) {
+        this.logger.warn(`Hot runtime watch cleanup failed for ${watcher.target}: ${error.message}`);
+      }
+    }
+    this.watchers = [];
+    this.cronScheduler.apiClient = null;
+    this.cronScheduler.stop();
   }
 }

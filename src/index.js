@@ -7,6 +7,41 @@ import { HotRuntime } from './hot-runtime.js';
 import { BotRuntimeBusyError, claimBotRuntime } from './runtime-state.js';
 
 let releaseRuntime = () => {};
+let shutdownRuntime = () => {};
+
+function installSignalHandlers() {
+  process.once('exit', () => shutdownRuntime());
+  process.once('SIGINT', () => {
+    shutdownRuntime();
+    process.exit(130);
+  });
+  process.once('SIGTERM', () => {
+    shutdownRuntime();
+    process.exit(143);
+  });
+}
+
+export function createShutdown({ getApiClient, getHotRuntime, releaseRuntime: release, onError = () => {} }) {
+  let stopped = false;
+  return () => {
+    if (stopped) {
+      return;
+    }
+
+    stopped = true;
+    for (const cleanup of [
+      () => getHotRuntime()?.stop?.(),
+      () => getApiClient()?.stop?.(),
+      release,
+    ]) {
+      try {
+        cleanup();
+      } catch (error) {
+        onError(error);
+      }
+    }
+  };
+}
 
 async function main() {
   const rootDir = path.dirname(fileURLToPath(new URL('../package.json', import.meta.url)));
@@ -28,24 +63,25 @@ async function main() {
     runtime.releaseSync();
   };
 
-  process.once('exit', releaseRuntime);
-  process.once('SIGINT', () => {
-    releaseRuntime();
-    process.exit(130);
+  let apiClient = null;
+  let hotRuntime = null;
+  const shutdown = createShutdown({
+    getApiClient: () => apiClient,
+    getHotRuntime: () => hotRuntime,
+    releaseRuntime,
+    onError: (error) => logger.error('Shutdown cleanup failed:', error.message),
   });
-  process.once('SIGTERM', () => {
-    releaseRuntime();
-    process.exit(143);
-  });
+  shutdownRuntime = shutdown;
 
   try {
-    const apiClient = new OneBotClient({
+    apiClient = new OneBotClient({
       eventUrl: config.napcat.eventUrl,
       apiUrl: config.napcat.apiUrl,
       accessToken: config.napcat.accessToken,
+      autoReconnect: config.napcat.autoReconnect,
       logger,
     });
-    const hotRuntime = new HotRuntime({ apiClient, logger, rootDir });
+    hotRuntime = new HotRuntime({ apiClient, logger, rootDir });
 
     await apiClient.connect();
     await hotRuntime.initialize();
@@ -54,20 +90,25 @@ async function main() {
 
     logger.info('Public bot is running');
   } catch (error) {
-    releaseRuntime();
+    shutdown();
     throw error;
   }
 }
 
-main().catch((error) => {
+function handleMainError(error) {
   if (error instanceof BotRuntimeBusyError) {
     console.warn('[WARN] Bot runtime lock is already held:', JSON.stringify(error.details ?? {}));
     process.exitCode = 1;
     return;
   }
 
-  releaseRuntime();
+  shutdownRuntime();
 
   console.error('[FATAL]', error);
   process.exitCode = 1;
-});
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  installSignalHandlers();
+  main().catch(handleMainError);
+}

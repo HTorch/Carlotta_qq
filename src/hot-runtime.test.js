@@ -48,6 +48,21 @@ function createLogger() {
   return { info() {}, warn() {}, error() {}, debug() {} };
 }
 
+function createTimerHarness() {
+  const timers = [];
+  return {
+    timers,
+    setTimeoutFn(callback, delay) {
+      const timer = { callback, delay, unref() {} };
+      timers.push(timer);
+      return timer;
+    },
+    clearTimeoutFn(timer) {
+      timer.cleared = true;
+    },
+  };
+}
+
 test('HotRuntime promotes a temporary startup store only after candidate construction', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'carlotta-runtime-'));
   const rulesFile = path.join(dir, 'group-rules.json');
@@ -158,6 +173,91 @@ test('HotRuntime restores the global ignored-user registry on initialization', a
       await runtime.reload('startup');
       assert.equal(runtime.ignoredUserRegistry.has('400001'), true);
       assert.strictEqual(runtime.runtime.messageEngine.ignoredUserRegistry, runtime.ignoredUserRegistry);
+    });
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('HotRuntime stop removes watchers, cancels reload and cron timers, and is idempotent', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'carlotta-runtime-'));
+  const rulesFile = path.join(dir, 'config', 'group-rules.json');
+  const watchedFiles = [
+    'config.js',
+    'img2-service.js',
+    'img2-client.js',
+    'rule-registry.js',
+    'action-registry.js',
+    'message-engine.js',
+  ];
+  fs.mkdirSync(path.join(dir, 'src', 'actions'), { recursive: true });
+  fs.mkdirSync(path.join(dir, 'config'), { recursive: true });
+  for (const file of watchedFiles) {
+    fs.writeFileSync(path.join(dir, 'src', file), '', 'utf8');
+  }
+  writeRules(rulesFile, { motherModeEnabled: false, sphereLightningModeEnabled: false });
+
+  const watchCalls = [];
+  const unwatchCalls = [];
+  const fsModule = {
+    statSync: fs.statSync.bind(fs),
+    watchFile(target, options, listener) {
+      watchCalls.push({ target, options, listener });
+    },
+    unwatchFile(target, listener) {
+      unwatchCalls.push({ target, listener });
+    },
+  };
+  const reloadTimers = createTimerHarness();
+  const cronTimers = createTimerHarness();
+
+  try {
+    await withConfigEnv(rulesFile, async () => {
+      const runtime = new HotRuntime({
+        apiClient: { sendGroupMessage: async () => {} },
+        logger: createLogger(),
+        rootDir: dir,
+        fsModule,
+        setTimeoutFn: reloadTimers.setTimeoutFn,
+        clearTimeoutFn: reloadTimers.clearTimeoutFn,
+        cronSetTimer: cronTimers.setTimeoutFn,
+        cronClearTimer: cronTimers.clearTimeoutFn,
+      });
+      runtime.startWatching();
+      assert.equal(watchCalls.length, 9);
+
+      runtime.watchers[0].listener({ mtimeMs: 2, size: 2 }, { mtimeMs: 1, size: 1 });
+      runtime.cronScheduler.replaceSnapshot([{
+        id: 'task-1',
+        groupId: '300001',
+        creatorUserId: '400001',
+        content: 'reminder',
+        firstRunAt: Date.now() + 10_000,
+        intervalMs: null,
+        expiresAt: null,
+        maxRuns: null,
+        runCount: 0,
+        notifyCreator: true,
+        nextRunAt: Date.now() + 10_000,
+        retryCount: 0,
+        retryAt: null,
+        status: 'active',
+      }]);
+      runtime.cronScheduler.scheduleNext();
+
+      runtime.stop();
+      runtime.stop();
+
+      assert.equal(unwatchCalls.length, 9);
+      assert.deepEqual(unwatchCalls, watchCalls.map(({ target, listener }) => ({ target, listener })));
+      assert.equal(reloadTimers.timers.length, 1);
+      assert.equal(reloadTimers.timers[0].cleared, true);
+      assert.equal(cronTimers.timers.length, 1);
+      assert.equal(cronTimers.timers[0].cleared, true);
+      runtime.cronScheduler.scheduleNext();
+      assert.equal(cronTimers.timers.length, 1);
+      assert.deepEqual(runtime.watchers, []);
+      assert.equal(runtime.reloadTimer, null);
     });
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
