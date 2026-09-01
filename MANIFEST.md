@@ -4,11 +4,16 @@ Every file in this directory is intentionally listed below. The manifest exclude
 
 ## Files
 
+- `.github/dependabot.yml`
+- `.github/ISSUE_TEMPLATE/bug_report.md`
+- `.github/ISSUE_TEMPLATE/feature_request.md`
+- `.github/pull_request_template.md`
 - `.github/workflows/codeql.yml`
 - `.github/workflows/node-ci.yml`
 - `.env.example`
 - `.gitignore`
 - `MANIFEST.md`
+- `LICENSE`
 - `README.md`
 - `config/group-rules.example.json`
 - `docs/architecture.md`
