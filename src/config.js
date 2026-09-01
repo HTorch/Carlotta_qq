@@ -12,6 +12,33 @@ function normalizeNapcatApiUrl(rawUrl) {
   return url.toString();
 }
 
+function requireWebSocketUrl(name) {
+  const value = requireEnv(name);
+
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'ws:' && url.protocol !== 'wss:') {
+      throw new Error('invalid protocol');
+    }
+  } catch {
+    throw new Error(`Invalid ${name}: expected a valid ws:// or wss:// URL`);
+  }
+
+  return value;
+}
+
+function validateGroupRules(parsed) {
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('Invalid group rules: root must be an object');
+  }
+
+  for (const [name, value] of [['defaultRule', parsed.defaultRule], ['groups', parsed.groups]]) {
+    if (value !== undefined && (value === null || typeof value !== 'object' || Array.isArray(value))) {
+      throw new Error(`Invalid group rules: ${name} must be an object`);
+    }
+  }
+}
+
 function requireEnv(name) {
   const value = process.env[name];
   if (!value) {
@@ -30,15 +57,19 @@ function resolveRulesFile(filePath) {
 }
 
 export function loadConfig() {
+  const eventUrl = requireWebSocketUrl('NAPCAT_WS_URL');
+  const apiUrl = requireWebSocketUrl('NAPCAT_API_WS_URL');
   const groupRulesFile = resolveRulesFile(requireEnv('GROUP_RULES_FILE'));
   const raw = fs.readFileSync(groupRulesFile, 'utf8');
   const parsed = JSON.parse(raw);
+  validateGroupRules(parsed);
 
   return {
     napcat: {
-      eventUrl: requireEnv('NAPCAT_WS_URL'),
-      apiUrl: normalizeNapcatApiUrl(requireEnv('NAPCAT_API_WS_URL')),
+      eventUrl,
+      apiUrl: normalizeNapcatApiUrl(apiUrl),
       accessToken: process.env.SNOWLUMA_ACCESS_TOKEN ?? '',
+      autoReconnect: process.env.ONEBOT_AUTO_RECONNECT === 'true',
     },
     logLevel: process.env.LOG_LEVEL ?? 'info',
     groupRulesFile,
