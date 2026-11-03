@@ -10,6 +10,6 @@
     "test": "node --test src/*.test.js"
   },
   "dependencies": {
-    "ws": "^8.18.3"
+    "ws": "^8.22.1"
   }
 }
